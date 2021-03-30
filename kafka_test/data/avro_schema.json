@@ -1,0 +1,91 @@
+{
+    "name": "doc",
+    "type": "record",
+    "fields": [
+      {
+        "name": "d",
+        "type": "int",
+        "logicalType": "date"
+      },
+      {
+        "name": "t_ms",
+        "type": "int",
+        "logicalType": "time-millis"
+      },
+      {
+        "name": "t_us",
+        "type": "long",
+        "logicalType": "time-micros"
+      },
+      {
+        "name": "ts_ms",
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      },
+      {
+        "name": "ts_us",
+        "type": "long",
+        "logicalType": "timestamp-micros"
+      },
+      {
+        "name": "dur",
+        "type": {
+            "name": "dur_fixed",
+            "type": "fixed",
+            "size": 12,
+            "logicalType": "duration"
+        }
+      },
+      {
+        "name": "dec_1",
+        "type": {
+            "name": "dec_2_fixed",
+            "type": "fixed",
+            "size": 6,
+            "logicalType": "decimal"
+        }
+      },
+      {
+        "name": "dec_2",
+        "type": {
+            "name": "dec_2_fixed",
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": 14,
+            "scale": 4
+        }
+      },
+      {
+        "name": "n",
+        "type": "null"
+      },
+      {
+        "name": "b_bytes",
+        "type": "bytes"
+      },
+      {
+        "name": "b_fixed",
+        "type": {
+            "name": "b_fixed_fixed",
+            "type": "fixed",
+            "size": 4
+        }
+      },
+      {
+        "name": "f",
+        "type": "float"
+      },
+      {
+        "name": "dbl",
+        "type": "double"
+      },
+      {
+        "name": "bln",
+        "type": "boolean"
+      },
+      {
+        "name": "postgres_type",
+        "type": "string"
+      }
+    ]
+  }

@@ -1,0 +1,4 @@
+comment = 'Kafka-ADB foreign data wrapper'
+default_version = '0.10.2'
+relocatable = false
+schema = kadb

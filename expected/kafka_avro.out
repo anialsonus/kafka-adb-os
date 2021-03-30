@@ -1,0 +1,153 @@
+-- Test how extension deserializes some AVRO types
+-- This test REQUIRES a running Kafka instance. See 'kafka_test' directory for
+-- instructions on how to setup one
+-- start_matchignore
+-- m/^NOTICE:  Kafka-ADB: Offset for partition [0-9]* is not known, and is set to default value [0-9]*$/
+-- end_matchignore
+-- start_ignore
+DROP EXTENSION IF EXISTS kadb_fdw CASCADE;
+NOTICE:  drop cascades to 4 other objects
+DETAIL:  drop cascades to server test_kadb_fdw_server
+drop cascades to foreign table test_kadb_fdw_table
+drop cascades to server test_kadb_fdw_server_not_exists
+drop cascades to foreign table test_kadb_fdw_table_server_not_exists
+CREATE EXTENSION kadb_fdw;
+CREATE SERVER test_kadb_fdw_server
+FOREIGN DATA WRAPPER kadb_fdw
+OPTIONS (
+    k_brokers 'localhost:9092',
+    format 'avro'
+);
+-- end_ignore
+-- Test: Exact types
+-- start_ignore
+DROP FOREIGN TABLE IF EXISTS test_kadb_fdw_table;
+NOTICE:  foreign table "test_kadb_fdw_table" does not exist, skipping
+CREATE FOREIGN TABLE test_kadb_fdw_table(
+    d DATE,
+    t_ms TIME,
+    t_us TIME,
+    ts_ms TIMESTAMP(3),
+    ts_us TIMESTAMP(6),
+    dur INTERVAL,
+    dec_1 NUMERIC,
+    dec_2 NUMERIC(14, 4),
+    n TEXT NULL,
+    b_bytes BYTEA,
+    b_fixed BYTEA,
+    f REAL,
+    dbl DOUBLE PRECISION,
+    bln BOOLEAN,
+    postgres_type MONEY
+)
+SERVER test_kadb_fdw_server
+OPTIONS (
+    k_topic 'kadb_fdw_test_avro',
+    k_consumer_group 'test_consumer_group',
+    k_seg_batch '5',
+    k_timeout_ms '2000'
+);
+-- end_ignore
+-- start_ignore
+SET client_min_messages = WARNING;
+SET extra_float_digits = 3;
+-- end_ignore
+SELECT
+    to_char(d, 'YYYY-MM-DD') AS d,
+    to_char(t_ms, 'HH24:MI:SS.MS') AS t_ms,
+    to_char(t_us, 'HH24:MI:SS.US') AS t_us,
+    to_char(ts_ms, 'YYYY-MM-DD HH24:MI:SS.MS') AS ts_ms,
+    (EXTRACT(EPOCH FROM ts_ms) * 1000000)::BIGINT AS ts_ms_epoch,
+    to_char(ts_us, 'YYYY-MM-DD HH24:MI:SS.US') AS ts_us,
+    (EXTRACT(EPOCH FROM ts_us) * 1000000)::BIGINT AS ts_us_epoch,
+    to_char(dur, 'YYYY-MM-DD HH24:MI:SS.MS') AS dur,
+    dec_1,
+    dec_2,
+    (n IS NULL) AS n,
+    b_bytes,
+    b_fixed,
+    f,
+    dbl,
+    bln,
+    postgres_type::NUMERIC
+FROM test_kadb_fdw_table
+ORDER BY ts_us_epoch;
+     d      |     t_ms     |      t_us       |          ts_ms          |    ts_ms_epoch     |           ts_us            |    ts_us_epoch     |           dur           |      dec_1       |      dec_2      | n |  b_bytes   |  b_fixed   |       f        |           dbl            | bln | postgres_type 
+------------+--------------+-----------------+-------------------------+--------------------+----------------------------+--------------------+-------------------------+------------------+-----------------+---+------------+------------+----------------+--------------------------+-----+---------------
+ 1883-07-03 | 00:00:00.000 | 00:00:00.000000 | 1331-01-02 20:39:25.877 | -20164735234123000 | 1331-01-02 20:39:25.877000 | -20164735234123000 | 0000-00-00 00:00:00.000 |                0 |         42.4242 | t | \x01000010 | \x01000010 |    -42.4241982 |                     -0.5 | t   |      -4242.00
+ 1883-07-03 | 00:00:00.000 | 00:00:00.000000 | 1331-01-02 20:39:25.877 | -20164735234123000 | 1331-01-02 20:39:25.877000 | -20164735234123000 | 0000-00-00 00:00:00.000 |                0 |         42.4242 | t | \x01000010 | \x01000010 |    -42.4241982 |                     -0.5 | t   |      -4242.00
+ 1946-02-14 | 00:00:00.001 | 00:00:00.000001 | 1946-02-14 12:00:00.002 |   -753537599998000 | 1946-02-14 12:00:00.001234 |   -753537599998766 | 0000-00-00 00:00:00.000 |                0 |         42.4242 | t | \x01000010 | \x01000010 |    -0.42424199 |   -0.0500000000000000028 | t   |         -0.42
+ 1946-02-14 | 00:00:00.001 | 00:00:00.000001 | 1946-02-14 12:00:00.002 |   -753537599998000 | 1946-02-14 12:00:00.001234 |   -753537599998766 | 0000-00-00 00:00:00.000 |                0 |         42.4242 | t | \x01000010 | \x01000010 |    -0.42424199 |   -0.0500000000000000028 | t   |         -0.42
+ 1969-12-31 | 12:00:00.012 | 12:00:00.012345 | 1966-04-10 08:10:37.619 |   -117647362381000 | 1966-04-10 08:10:37.618666 |   -117647362381334 | 0042-00-42 01:02:03.456 |                0 |         42.4242 | t | \x01000010 | \x01000010 |     42.4241982 |      35667.0000451589003 | t   |       4242.42
+ 1969-12-31 | 12:00:00.012 | 12:00:00.012345 | 1966-04-10 08:10:37.619 |   -117647362381000 | 1966-04-10 08:10:37.618666 |   -117647362381334 | 0042-00-42 01:02:03.456 |                0 |         42.4242 | t | \x01000010 | \x01000010 |     42.4241982 |      35667.0000451589003 | t   |       4242.42
+ 1970-01-01 | 12:00:00.012 | 12:00:00.012345 | 1969-12-31 23:59:58.012 |           -1988000 | 1969-12-31 23:59:58.001234 |           -1998766 | 0000-00-00 00:00:00.042 |            16384 |          0.4242 | t | \x00010203 | \x00010203 |  1.1920929e-07 |  2.22044604925031308e-16 | t   |         42.42
+ 1970-01-01 | 12:00:00.012 | 12:00:00.012345 | 1969-12-31 23:59:58.012 |           -1988000 | 1969-12-31 23:59:58.001234 |           -1998766 | 0000-00-00 00:00:00.042 |            16384 |          0.4242 | t | \x00010203 | \x00010203 |  1.1920929e-07 |  2.22044604925031308e-16 | t   |         42.42
+ 1970-01-02 | 12:00:00.001 | 12:00:00.000012 | 1970-01-01 00:00:01.001 |            1001000 | 1970-01-01 00:00:01.000012 |            1000012 | 0000-00-00 00:00:00.000 |  -70368744177664 |          0.0042 | t | \xff000000 | \xff000000 | 1.17549435e-38 | 2.22507385850720138e-308 | t   |          0.42
+ 1970-01-02 | 12:00:00.001 | 12:00:00.000012 | 1970-01-01 00:00:01.001 |            1001000 | 1970-01-01 00:00:01.000012 |            1000012 | 0000-00-00 00:00:00.000 |  -70368744177664 |          0.0042 | t | \xff000000 | \xff000000 | 1.17549435e-38 | 2.22507385850720138e-308 | t   |          0.42
+ 2020-11-05 | 12:00:00.123 | 12:00:00.123456 | 2020-11-04 12:01:02.123 |   1604491262123000 | 2020-11-04 12:01:02.123456 |   1604491262123456 | 0003-06-42 00:07:04.242 |  -42424242424242 | 4242424242.4242 | t | \xdeadbeef | \xdeadbeef | 3.40282347e+38 | 1.79769313486231571e+308 | t   |   42424242.42
+ 2020-11-05 | 12:00:00.123 | 12:00:00.123456 | 2020-11-04 12:01:02.123 |   1604491262123000 | 2020-11-04 12:01:02.123456 |   1604491262123456 | 0003-06-42 00:07:04.242 |  -42424242424242 | 4242424242.4242 | t | \xdeadbeef | \xdeadbeef | 3.40282347e+38 | 1.79769313486231571e+308 | t   |   42424242.42
+ 2052-07-26 | 12:00:00.000 | 12:00:00.000000 | 2052-07-26 22:57:52.000 |   2605647472000000 | 2052-07-26 22:57:52.000000 |   2605647472000000 | 0001-02-03 00:00:00.000 | -140737479966720 |          0.0000 | t | \x00000000 | \x00000000 |              0 |                        0 | f   |          0.00
+ 2052-07-26 | 12:00:00.000 | 12:00:00.000000 | 2052-07-26 22:57:52.000 |   2605647472000000 | 2052-07-26 22:57:52.000000 |   2605647472000000 | 0001-02-03 00:00:00.000 | -140737479966720 |          0.0000 | t | \x00000000 | \x00000000 |              0 |                        0 | f   |          0.00
+(14 rows)
+
+-- start_ignore
+RESET extra_float_digits;
+RESET client_min_messages;
+-- end_ignore
+-- Test: Default timestamp precision
+-- start_ignore
+DROP FOREIGN TABLE IF EXISTS test_kadb_fdw_table;
+CREATE FOREIGN TABLE test_kadb_fdw_table(
+    d DATE,
+    t_ms TIME,
+    t_us TIME,
+    ts_ms TIMESTAMP(3),
+    ts_us TIMESTAMP,
+    dur INTERVAL,
+    dec_1 NUMERIC,
+    dec_2 NUMERIC(14, 4),
+    n TEXT NULL,
+    b_bytes BYTEA,
+    b_fixed BYTEA,
+    f REAL,
+    dbl DOUBLE PRECISION,
+    bln BOOLEAN,
+    postgres_type MONEY
+)
+SERVER test_kadb_fdw_server
+OPTIONS (
+    k_topic 'kadb_fdw_test_avro',
+    k_consumer_group 'test_consumer_group',
+    k_seg_batch '5',
+    k_timeout_ms '2000'
+);
+-- end_ignore
+-- start_ignore
+SET client_min_messages = WARNING;
+-- end_ignore
+SELECT
+    to_char(ts_us, 'YYYY-MM-DD HH24:MI:SS.US') AS ts_us,
+    (EXTRACT(EPOCH FROM ts_us) * 1000000)::BIGINT AS ts_us_epoch
+FROM test_kadb_fdw_table
+ORDER BY ts_us_epoch;
+           ts_us            |    ts_us_epoch     
+----------------------------+--------------------
+ 1331-01-02 20:39:25.877000 | -20164735234123000
+ 1331-01-02 20:39:25.877000 | -20164735234123000
+ 1946-02-14 12:00:00.001234 |   -753537599998766
+ 1946-02-14 12:00:00.001234 |   -753537599998766
+ 1966-04-10 08:10:37.618666 |   -117647362381334
+ 1966-04-10 08:10:37.618666 |   -117647362381334
+ 1969-12-31 23:59:58.001234 |           -1998766
+ 1969-12-31 23:59:58.001234 |           -1998766
+ 1970-01-01 00:00:01.000012 |            1000012
+ 1970-01-01 00:00:01.000012 |            1000012
+ 2020-11-04 12:01:02.123456 |   1604491262123456
+ 2020-11-04 12:01:02.123456 |   1604491262123456
+ 2052-07-26 22:57:52.000000 |   2605647472000000
+ 2052-07-26 22:57:52.000000 |   2605647472000000
+(14 rows)
+
+-- start_ignore
+RESET client_min_messages;
+-- end_ignore

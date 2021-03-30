@@ -1,0 +1,701 @@
+-- Test how extension synchronizes offsets with Kafka
+-- This test REQUIRES a running Kafka instance. See 'kafka_test' directory for
+-- instructions on how to setup one
+-- start_matchignore
+-- m/^NOTICE:  Kafka-ADB: Offset for partition [0-9]* is not known, and is set to default value [0-9]*$/
+-- end_matchignore
+-- start_ignore
+DROP EXTENSION IF EXISTS kadb_fdw CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to server test_kadb_fdw_server
+drop cascades to foreign table test_kadb_fdw_table
+CREATE EXTENSION kadb_fdw;
+CREATE SERVER test_kadb_fdw_server
+FOREIGN DATA WRAPPER kadb_fdw
+OPTIONS (
+    k_brokers 'localhost:9092',
+    format 'avro'
+);
+CREATE FOREIGN TABLE test_kadb_fdw_table(
+    id INT,
+    gnr TEXT,
+    stu TEXT,
+    ser TEXT,
+    num TEXT,
+    iss_by TEXT,
+    iss_da INT,
+    iss_plc TEXT,
+    exp_dat INT,
+    det_dat TEXT,
+    r_obj INT,
+    crt_on INT,
+    upd_on INT,
+    dsc TEXT NULL,
+    iss_id TEXT,
+    vrf_stu TEXT,
+    vrf_on INT,
+    sys_op INT
+)
+SERVER test_kadb_fdw_server
+OPTIONS (
+    k_topic 'kadb_fdw_test',
+    k_consumer_group 'test_consumer_group',
+    k_seg_batch '5',
+    k_timeout_ms '2000'
+);
+-- end_ignore
+-- Test: kadb.load_partitions()
+SELECT prt, off FROM kadb.load_partitions('test_kadb_fdw_table'::regclass::oid)
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+(4 rows)
+
+SELECT prt, off FROM kadb.load_partitions('test_kadb_fdw_table'::regclass::oid)
+WHERE ftoid <> 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ prt | off 
+-----+-----
+(0 rows)
+
+-- Test: kadb.partitions_reset()
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+(4 rows)
+
+-- start_ignore
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+-- end_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+(4 rows)
+
+-- Test: kadb.partitions_clean()
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+-- start_ignore
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+-- end_ignore
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+  42 |  42
+(5 rows)
+
+SELECT kadb.partitions_clean('test_kadb_fdw_table'::regclass::oid);
+ partitions_clean 
+------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+(4 rows)
+
+-- Test: kadb.partitions_obtain()
+-- start_ignore
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+-- end_ignore
+SELECT kadb.partitions_obtain('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_obtain 
+-------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+  42 |  42
+(5 rows)
+
+-- Test: Offsets at timestamp
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT prt, off FROM kadb.load_offsets_at_timestamp('test_kadb_fdw_table'::regclass::oid, 1000000000000)
+ORDER BY prt;
+NOTICE:  Kafka-ADB: Partition 2 is empty, offset (1) is left unchanged
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   1
+   3 |   0
+(4 rows)
+
+SELECT kadb.offsets_to_timestamp('test_kadb_fdw_table'::regclass::oid, 1000000000000);
+NOTICE:  Kafka-ADB: Partition 2 is empty, offset (1) is left unchanged
+ offsets_to_timestamp 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   1
+   3 |   0
+(4 rows)
+
+-- start_ignore
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_timestamp('test_kadb_fdw_table'::regclass::oid, 1000000000000);
+ offsets_to_timestamp 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid AND prt = 0;
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_timestamp('test_kadb_fdw_table'::regclass::oid, 1000000000000);
+NOTICE:  Kafka-ADB: Partition 2 is empty, offset (1) is left unchanged
+ offsets_to_timestamp 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   1 |   0
+   2 |   1
+   3 |   0
+(3 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_timestamp('test_kadb_fdw_table'::regclass::oid, 1000000000000);
+NOTICE:  Kafka-ADB: Partition 2 is empty, offset (1) is left unchanged
+NOTICE:  Kafka-ADB: Partition 42 does not exist in Kafka, offset (1) is left unchanged
+ offsets_to_timestamp 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   1
+   3 |   0
+  42 |   1
+(5 rows)
+
+-- Test: Earliest offsets
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT prt, off FROM kadb.load_offsets_earliest('test_kadb_fdw_table'::regclass::oid)
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+(4 rows)
+
+SELECT kadb.offsets_to_earliest('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_earliest 
+---------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+(4 rows)
+
+-- start_ignore
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_earliest('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_earliest 
+---------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid AND prt = 0;
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_earliest('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_earliest 
+---------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   1 |   0
+   2 |   0
+   3 |   0
+(3 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_earliest('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Partition 42 does not exist in Kafka, offset (1) is left unchanged
+ offsets_to_earliest 
+---------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   0
+   1 |   0
+   2 |   0
+   3 |   0
+  42 |   1
+(5 rows)
+
+-- Test: Latest offsets
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT prt, off FROM kadb.load_offsets_latest('test_kadb_fdw_table'::regclass::oid)
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   2
+   1 |   1
+   2 |   0
+   3 |   3
+(4 rows)
+
+SELECT kadb.offsets_to_latest('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_latest 
+-------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   2
+   1 |   1
+   2 |   0
+   3 |   3
+(4 rows)
+
+-- start_ignore
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_latest('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_latest 
+-------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid AND prt = 0;
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_latest('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_latest 
+-------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   1 |   1
+   2 |   0
+   3 |   3
+(3 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_latest('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Partition 42 does not exist in Kafka, offset (1) is left unchanged
+ offsets_to_latest 
+-------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   2
+   1 |   1
+   2 |   0
+   3 |   3
+  42 |   1
+(5 rows)
+
+-- Test: Committed offsets
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT prt, off FROM kadb.load_offsets_committed('test_kadb_fdw_table'::regclass::oid)
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   2
+   1 |   1
+   2 |   0
+   3 |   3
+(4 rows)
+
+SELECT kadb.offsets_to_committed('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_committed 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   2
+   1 |   1
+   2 |   0
+   3 |   3
+(4 rows)
+
+-- start_ignore
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_committed('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_committed 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+DELETE FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid AND prt = 0;
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_committed('test_kadb_fdw_table'::regclass::oid);
+ offsets_to_committed 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   1 |   1
+   2 |   0
+   3 |   3
+(3 rows)
+
+-- start_ignore
+SELECT kadb.partitions_reset('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 0
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 0
+ partitions_reset 
+------------------
+ 
+(1 row)
+
+INSERT INTO kadb.offsets(ftoid, prt, off) VALUES
+('test_kadb_fdw_table'::regclass::oid, 42, 42);
+UPDATE kadb.offsets SET off = 1 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid;
+-- end_ignore
+SELECT kadb.offsets_to_committed('test_kadb_fdw_table'::regclass::oid);
+NOTICE:  Kafka-ADB: Partition 42 does not exist in Kafka, offset (1) is left unchanged
+ offsets_to_committed 
+----------------------
+ 
+(1 row)
+
+SELECT prt, off FROM kadb.offsets 
+WHERE ftoid = 'test_kadb_fdw_table'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |   2
+   1 |   1
+   2 |   0
+   3 |   3
+  42 |   1
+(5 rows)
+

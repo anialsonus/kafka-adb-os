@@ -1,0 +1,250 @@
+-- Test the extension does not allow to create two cursors in a single session
+-- These tests do not require a Kafka instance. They can be run as common tests.
+-- start_matchignore
+-- m/^NOTICE:  Kafka-ADB: Offset for partition [0-9]* is not known, and is set to default value [0-9]*.*/
+-- end_matchignore
+-- start_ignore
+CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
+NOTICE:  extension "gp_inject_fault" already exists, skipping
+DROP EXTENSION IF EXISTS kadb_fdw CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to server test_kadb_fdw_distribution_server
+drop cascades to foreign table test_kadb_fdw_t
+CREATE EXTENSION kadb_fdw;
+CREATE SERVER test_kadb_fdw_distribution_server
+FOREIGN DATA WRAPPER kadb_fdw
+OPTIONS (
+    k_brokers '0.0.0.0:9092',
+    format 'avro'
+);
+-- end_ignore
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+CREATE FOREIGN TABLE test_kadb_fdw_t(i INT, t TEXT)
+SERVER test_kadb_fdw_distribution_server
+OPTIONS (
+    k_topic 'test_topic',
+    k_consumer_group 'test_consumer_group',
+    k_seg_batch '3',
+    k_timeout_ms '1000',
+    k_tuples_per_partition_on_inject '2',
+    k_initial_offset '40'
+);
+-- end_ignore
+-- Test: Two cursors in a single session are forbidden
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_1_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+FETCH 1 FROM curs;
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 40  (seg0 slice1 127.0.1.1:6002 pid=51260)
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 40  (seg1 slice1 127.0.1.1:6003 pid=51261)
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 40  (seg2 slice1 127.0.1.1:6004 pid=51262)
+ i  | t 
+----+---
+ 42 | 
+(1 row)
+
+DECLARE curs2 CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+ERROR:  Kafka-ADB: In a single session, only one cursor per table is allowed
+ROLLBACK;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+
+-- Test: Two cursors in a single session are forbidden (no FETCH)
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_1_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+DECLARE curs2 CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 40  (seg0 slice1 127.0.1.1:6002 pid=51260)
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 40  (seg1 slice1 127.0.1.1:6003 pid=51261)
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 40  (seg2 slice1 127.0.1.1:6004 pid=51262)
+ERROR:  Kafka-ADB: In a single session, only one cursor per table is allowed
+ROLLBACK;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+
+-- Test: SELECT is not allowed when CURSOR is in use
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+FETCH 1 FROM curs;
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 40  (seg0 slice1 127.0.1.1:6002 pid=51260)
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 40  (seg0 slice1 127.0.1.1:6002 pid=51260)
+ i  | t 
+----+---
+ 42 | 
+(1 row)
+
+SELECT i, t FROM test_kadb_fdw_t;
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 40  (seg1 slice1 127.0.1.1:6003 pid=51261)
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 40  (seg1 slice1 127.0.1.1:6003 pid=51261)
+NOTICE:  Kafka-ADB: Offset for partition 4 is not known, and is set to default value 40  (seg2 slice1 127.0.1.1:6004 pid=51262)
+NOTICE:  Kafka-ADB: Offset for partition 5 is not known, and is set to default value 40  (seg2 slice1 127.0.1.1:6004 pid=51262)
+ERROR:  Kafka-ADB: In a single session, only one cursor per table is allowed
+ROLLBACK;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+(0 rows)
+

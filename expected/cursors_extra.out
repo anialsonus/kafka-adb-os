@@ -1,0 +1,551 @@
+-- Test the extension works with CURSORs properly in certain complex scenarios
+-- These tests do not require a Kafka instance. They can be run as common tests.
+-- start_matchignore
+-- m/^NOTICE:  Kafka-ADB: Offset for partition [0-9]* is not known, and is set to default value [0-9]*.*/
+-- end_matchignore
+-- start_ignore
+CREATE EXTENSION IF NOT EXISTS gp_inject_fault;
+NOTICE:  extension "gp_inject_fault" already exists, skipping
+DROP EXTENSION IF EXISTS kadb_fdw CASCADE;
+NOTICE:  drop cascades to 2 other objects
+DETAIL:  drop cascades to server test_kadb_fdw_distribution_server
+drop cascades to foreign table test_kadb_fdw_t
+CREATE EXTENSION kadb_fdw;
+CREATE SERVER test_kadb_fdw_distribution_server
+FOREIGN DATA WRAPPER kadb_fdw
+OPTIONS (
+    k_brokers '0.0.0.0:9092',
+    format 'avro'
+);
+-- end_ignore
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+CREATE FOREIGN TABLE test_kadb_fdw_t(i INT, t TEXT)
+SERVER test_kadb_fdw_distribution_server
+OPTIONS (
+    k_topic 'test_topic',
+    k_consumer_group 'test_consumer_group',
+    k_seg_batch '3',
+    k_timeout_ms '1000',
+    k_tuples_per_partition_on_inject '2',
+    k_initial_offset '40'
+);
+-- end_ignore
+-- Test: kadb.offsets is empty at first SELECT with automatic offsets
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+FETCH 1 FROM curs;
+NOTICE:  Kafka-ADB: Offset for partition 2 is not known, and is set to default value 40  (seg1 slice1 127.0.1.1:6003 pid=51354)
+NOTICE:  Kafka-ADB: Offset for partition 3 is not known, and is set to default value 40  (seg1 slice1 127.0.1.1:6003 pid=51354)
+ i  | t 
+----+---
+ 42 | 
+(1 row)
+
+SELECT COUNT(*) FROM kadb.offsets;
+ count 
+-------
+     0
+(1 row)
+
+FETCH ALL FROM curs;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(5 rows)
+
+COMMIT;
+NOTICE:  Kafka-ADB: Offset for partition 0 is not known, and is set to default value 40  (seg0 slice1 127.0.1.1:6002 pid=51353)
+NOTICE:  Kafka-ADB: Offset for partition 1 is not known, and is set to default value 40  (seg0 slice1 127.0.1.1:6002 pid=51353)
+NOTICE:  Kafka-ADB: Offset for partition 4 is not known, and is set to default value 40  (seg2 slice1 127.0.1.1:6004 pid=51355)
+NOTICE:  Kafka-ADB: Offset for partition 5 is not known, and is set to default value 40  (seg2 slice1 127.0.1.1:6004 pid=51355)
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |  42
+   1 |  40
+   2 |  42
+   3 |  40
+   4 |  42
+   5 |  40
+(6 rows)
+
+-- Test: SELECTs from other tables are allowed
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+SELECT prt, off FROM kadb.offsets;
+ prt | off 
+-----+-----
+   2 |  42
+   3 |  40
+   0 |  42
+   1 |  40
+   4 |  42
+   5 |  40
+(6 rows)
+
+FETCH ALL FROM curs;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(6 rows)
+
+COMMIT;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |  44
+   1 |  40
+   2 |  44
+   3 |  40
+   4 |  44
+   5 |  40
+(6 rows)
+
+-- Test: After a cursor is closed, another can be opened in the same transaction
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+FETCH 1 FROM curs;
+ i  | t 
+----+---
+ 42 | 
+(1 row)
+
+CLOSE curs;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+FETCH ALL FROM curs;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(6 rows)
+
+COMMIT;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |  48
+   1 |  40
+   2 |  48
+   3 |  40
+   4 |  48
+   5 |  40
+(6 rows)
+
+-- Test: After a cursor is closed, SELECT can be issued
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+DECLARE curs CURSOR FOR SELECT i, t FROM test_kadb_fdw_t;
+FETCH ALL FROM curs;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(6 rows)
+
+CLOSE curs;
+SELECT i, t FROM test_kadb_fdw_t;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(6 rows)
+
+COMMIT;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |  52
+   1 |  40
+   2 |  52
+   3 |  40
+   4 |  52
+   5 |  40
+(6 rows)
+
+-- Test: Two SELECTs in a single transaction can be issued
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+BEGIN;
+SELECT i, t FROM test_kadb_fdw_t;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(6 rows)
+
+SELECT i, t FROM test_kadb_fdw_t;
+ i  | t 
+----+---
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+ 42 | 
+(6 rows)
+
+COMMIT;
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |  56
+   1 |  40
+   2 |  56
+   3 |  40
+   4 |  56
+   5 |  40
+(6 rows)
+
+-- Test: SELECT with additional operations is allowed
+-- start_ignore
+SELECT gp_inject_fault_infinite('kadb_fdw_inject_tuples', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+SELECT gp_inject_fault_infinite('kadb_fdw_partition_2_per_segment', 'skip', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault_infinite 
+--------------------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT json_object(ARRAY[i::text, t]) FROM test_kadb_fdw_t;
+  json_object  
+---------------
+ {"42" : null}
+ {"42" : null}
+ {"42" : null}
+ {"42" : null}
+ {"42" : null}
+ {"42" : null}
+(6 rows)
+
+-- start_ignore
+SELECT gp_inject_fault('all', 'reset', dbid)
+FROM gp_segment_configuration;
+ gp_inject_fault 
+-----------------
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+ Success:
+(8 rows)
+
+-- end_ignore
+SELECT prt, off
+FROM kadb.offsets
+WHERE ftoid = 'test_kadb_fdw_t'::regclass::oid
+ORDER BY prt;
+ prt | off 
+-----+-----
+   0 |  58
+   1 |  40
+   2 |  58
+   3 |  40
+   4 |  58
+   5 |  40
+(6 rows)
+
